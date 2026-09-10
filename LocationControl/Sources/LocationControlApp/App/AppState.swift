@@ -31,11 +31,11 @@ public final class AppState: ObservableObject {
     public init(
         routingService: RoutingServiceProtocol = MapKitRoutingService(),
         persistenceService: PersistenceService = PersistenceService(),
-        capabilityRegistry: CapabilityRegistry = CapabilityRegistry()
+        capabilityRegistry: CapabilityRegistry? = nil
     ) {
         self.routingService = routingService
         self.persistenceService = persistenceService
-        self.capabilityRegistry = capabilityRegistry
+        self.capabilityRegistry = capabilityRegistry ?? CapabilityRegistry()
         
         self.startCoordinate = LocationCoordinate(latitude: 52.2297, longitude: 21.0122)
         self.destinationCoordinate = LocationCoordinate(latitude: 50.0647, longitude: 19.9450)
@@ -77,7 +77,7 @@ public final class AppState: ObservableObject {
     public func setupSimulationEngine(for route: RouteDefinition) {
         let engine = SimulationEngine(route: route, settings: simulationSettings)
         engine.onTelemetryUpdate = { [weak self] telem in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.liveTelemetry = telem
             }
         }
@@ -124,12 +124,14 @@ public final class AppState: ObservableObject {
     private func startTicker() {
         simulationTimer?.invalidate()
         simulationTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self = self, let engine = self.simulationEngine else { return }
-            let telem = engine.tick()
-            if telem.state == .completed {
-                self.isSimulating = false
-                self.simulationTimer?.invalidate()
-                self.simulationTimer = nil
+            Task { @MainActor [weak self] in
+                guard let self = self, let engine = self.simulationEngine else { return }
+                let telem = engine.tick()
+                if telem.state == .completed {
+                    self.isSimulating = false
+                    self.simulationTimer?.invalidate()
+                    self.simulationTimer = nil
+                }
             }
         }
     }

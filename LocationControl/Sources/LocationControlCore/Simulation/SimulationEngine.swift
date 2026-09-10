@@ -266,6 +266,7 @@ public final class SimulationEngine: SimulationEngineProtocol, @unchecked Sendab
         )
     }
 
+    @discardableResult
     private func emitTelemetryLocked() -> SimulationTelemetry {
         let telem = buildTelemetryLocked()
         if let cb = onTelemetryUpdate {
