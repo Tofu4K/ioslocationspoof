@@ -12,23 +12,28 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Select Xcode Version
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
-
-      - name: Build LocationControl App
+      - name: Build iOS App with iPhoneOS SDK
         run: |
-          mkdir -p build/Payload
           cd LocationControl
           
-          # Build executable
-          swift build -c release --triple arm64-apple-ios17.0
+          # Discover iPhoneOS SDK Path
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "Using iPhoneOS SDK at: $SDK_PATH"
           
-          # Create .app bundle structure
+          # Compile Swift Package for iOS Device (arm64)
+          swift build -c release \
+            -Xswiftc "-sdk" -Xswiftc "$SDK_PATH" \
+            -Xswiftc "-target" -Xswiftc "arm64-apple-ios17.0"
+          
+          # Create Payload directory for IPA
+          mkdir -p ../build/Payload/LocationControl.app
           APP_DIR="../build/Payload/LocationControl.app"
-          mkdir -p "$APP_DIR"
           
-          # Copy binary and resources
-          cp .build/arm64-apple-ios17.0/release/LocationControlApp "$APP_DIR/LocationControl" 2>/dev/null || true
+          # Locate built binary
+          BINARY=$(find .build -name "LocationControlApp" -type f | head -n 1)
+          echo "Found binary at: $BINARY"
+          cp "$BINARY" "$APP_DIR/LocationControl"
+          chmod +x "$APP_DIR/LocationControl"
           
           # Generate Info.plist
           cat << 'EOF' > "$APP_DIR/Info.plist"
