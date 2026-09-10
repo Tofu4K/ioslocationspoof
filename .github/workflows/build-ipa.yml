@@ -12,30 +12,36 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build iOS App with iPhoneOS SDK
+      - name: Build iOS App Binary
         run: |
           cd LocationControl
           
-          # Discover iPhoneOS SDK Path
-          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          echo "Using iPhoneOS SDK at: $SDK_PATH"
+          # Get the official iOS SDK path
+          IPHONEOS_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "Targeting SDK: $IPHONEOS_SDK"
           
-          # Compile Swift Package for iOS Device (arm64)
+          # Clean any previous artifacts
+          rm -rf .build ../build
+          
+          # Compile with swift build passing --sdk directly to SwiftPM
           swift build -c release \
-            -Xswiftc "-sdk" -Xswiftc "$SDK_PATH" \
-            -Xswiftc "-target" -Xswiftc "arm64-apple-ios17.0"
+            --sdk "$IPHONEOS_SDK" \
+            --triple arm64-apple-ios17.0
           
-          # Create Payload directory for IPA
+          # Create IPA Payload structure
           mkdir -p ../build/Payload/LocationControl.app
           APP_DIR="../build/Payload/LocationControl.app"
           
-          # Locate built binary
-          BINARY=$(find .build -name "LocationControlApp" -type f | head -n 1)
+          # Copy compiled binary
+          BINARY=$(find .build/arm64-apple-ios17.0/release -type f -name "LocationControlApp" | head -n 1)
+          if [ -z "$BINARY" ]; then
+            BINARY=$(find .build -type f -name "LocationControlApp" | head -n 1)
+          fi
           echo "Found binary at: $BINARY"
           cp "$BINARY" "$APP_DIR/LocationControl"
           chmod +x "$APP_DIR/LocationControl"
           
-          # Generate Info.plist
+          # Generate standard Info.plist
           cat << 'EOF' > "$APP_DIR/Info.plist"
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -47,14 +53,16 @@ jobs:
               <string>com.locationcontrol.suite</string>
               <key>CFBundleName</key>
               <string>LocationControl</string>
-              <key>CFBundleVersion</key>
-              <string>1.0.0</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0.0</string>
               <key>CFBundlePackageType</key>
               <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundleVersion</key>
+              <string>1.0.0</string>
               <key>LSRequiresIPhoneOS</key>
               <true/>
+              <key>MinimumOSVersion</key>
+              <string>17.0</string>
               <key>NSLocationWhenInUseUsageDescription</key>
               <string>LocationControl requires location permissions to display and simulate driving routes.</string>
               <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
