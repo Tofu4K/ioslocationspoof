@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "locationctl"
+version = "1.0.0"
+description = "PC Companion Controller for iOS Location Simulation & Testing Suite"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "LocationControl Engineering Team" }]
+dependencies = [
+    "typer[all]>=0.12.0",
+    "rich>=13.7.0",
+    "pydantic>=2.7.0",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+locationctl = "locationctl.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]

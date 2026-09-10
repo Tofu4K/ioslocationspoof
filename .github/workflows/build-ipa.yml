@@ -1,0 +1,79 @@
+name: Build LocationControl IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-ipa:
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+      - name: Build LocationControl App
+        run: |
+          mkdir -p build/Payload
+          cd LocationControl
+          
+          # Build executable
+          swift build -c release --triple arm64-apple-ios17.0
+          
+          # Create .app bundle structure
+          APP_DIR="../build/Payload/LocationControl.app"
+          mkdir -p "$APP_DIR"
+          
+          # Copy binary and resources
+          cp .build/arm64-apple-ios17.0/release/LocationControlApp "$APP_DIR/LocationControl" 2>/dev/null || true
+          
+          # Generate Info.plist
+          cat << 'EOF' > "$APP_DIR/Info.plist"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>LocationControl</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.locationcontrol.suite</string>
+              <key>CFBundleName</key>
+              <string>LocationControl</string>
+              <key>CFBundleVersion</key>
+              <string>1.0.0</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+              <key>NSLocationWhenInUseUsageDescription</key>
+              <string>LocationControl requires location permissions to display and simulate driving routes.</string>
+              <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+              <string>LocationControl simulates virtual routes in background sessions.</string>
+              <key>UIRequiredDeviceCapabilities</key>
+              <array>
+                  <string>arm64</string>
+              </array>
+              <key>UISupportedInterfaceOrientations</key>
+              <array>
+                  <string>UIInterfaceOrientationPortrait</string>
+              </array>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Package into IPA
+        run: |
+          cd build
+          zip -r LocationControl.ipa Payload/
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocationControl-IPA
+          path: build/LocationControl.ipa
+          retention-days: 14
