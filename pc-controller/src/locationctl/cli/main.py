@@ -230,5 +230,14 @@ def cmd_serve(host: str, port: int):
     run_server(host=host, port=port, backend=backend)
 
 
+@cli.command("server", hidden=True)
+@click.option("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
+@click.option("--port", default=8765, help="Port (default: 8765)")
+def cmd_server(host: str, port: int):
+    """Alias for serve."""
+    cmd_serve(host=host, port=port)
+
+
+
 if __name__ == "__main__":
     cli()

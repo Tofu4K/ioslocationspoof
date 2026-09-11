@@ -133,7 +133,7 @@ class DeveloperServiceBackend(SimulationBackend):
                         "Start the service via Windows Services or launch iTunes."
                     )
                 else:
-                    self._last_error = "No iOS device detected via USB. Connect your iPhone 13."
+                    self._last_error = "No iOS device detected. Connect via USB or ensure Wi-Fi sync is enabled in iTunes."
                 return False
 
             target = None
