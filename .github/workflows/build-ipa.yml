@@ -22,7 +22,7 @@ jobs:
         run: |
           cd LocationControl
           
-          # Target real iPhone physical SDK
+          # Target physical iPhone SDK
           IPHONEOS_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           echo "Targeting SDK: $IPHONEOS_SDK"
           
@@ -52,75 +52,17 @@ jobs:
           cp "$BINARY" "$APP_DIR/LocationControl"
           chmod +x "$APP_DIR/LocationControl"
           
-          # Copy App Icon assets if present
-          if [ -d "Resources" ]; then
-            echo "Copying icon assets..."
-            cp -r Resources/* "$APP_DIR/" 2>/dev/null || true
+          # Copy standalone Info.plist
+          if [ -f "Info.plist" ]; then
+            echo "Copying Info.plist..."
+            cp "Info.plist" "$APP_DIR/Info.plist"
           fi
           
-          # Write production Info.plist
-          cat << 'EOF' > "$APP_DIR/Info.plist"
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
-    <key>CFBundleExecutable</key>
-    <string>LocationControl</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.locationcontrol.suite</string>
-    <key>CFBundleName</key>
-    <string>LocationControl</string>
-    <key>CFBundleDisplayName</key>
-    <string>LocationControl</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
-    <key>CFBundleVersion</key>
-    <string>1.0.0</string>
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
-    <key>MinimumOSVersion</key>
-    <string>17.0</string>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-    </dict>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>LocationControl communicates with the PC companion server over your local network.</string>
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>LocationControl requires location permissions to display and simulate coordinates.</string>
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>LocationControl requires location permissions for background coordinate synchronization.</string>
-    <key>UIRequiredDeviceCapabilities</key>
-    <array>
-        <string>arm64</string>
-    </array>
-    <key>UISupportedInterfaceOrientations</key>
-    <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
-    <key>UILaunchScreen</key>
-    <dict/>
-    <key>CFBundleIcons</key>
-    <dict>
-        <key>CFBundlePrimaryIcon</key>
-        <dict>
-            <key>CFBundleIconFiles</key>
-            <array>
-                <string>AppIcon60x60</string>
-                <string>AppIcon180</string>
-            </array>
-        </dict>
-    </dict>
-</dict>
-</plist>
-EOF
+          # Copy App Icon assets
+          if [ -d "Resources" ]; then
+            echo "Copying icon assets..."
+            cp Resources/*.png "$APP_DIR/" 2>/dev/null || true
+          fi
           
           # Ad-hoc code signing for iOS bundle integrity
           echo "Signing bundle with ad-hoc signature..."
