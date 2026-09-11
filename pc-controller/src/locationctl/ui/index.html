@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iOS Developer Location Simulation Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --bg-primary: #0a0d14;
+      --bg-secondary: #121826;
+      --bg-card: rgba(22, 30, 46, 0.85);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-active: rgba(56, 189, 248, 0.4);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.25);
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.25);
+      --error: #ef4444;
+      --error-glow: rgba(239, 68, 68, 0.25);
+      --warning: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header Bar */
+    header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 1000;
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #38bdf8, #6366f1);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    /* Device Status Pill */
+    .device-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 6px 14px;
+      border-radius: 9999px;
+      border: 1px solid var(--border-color);
+      font-size: 12px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--error);
+      box-shadow: 0 0 8px var(--error-glow);
+      transition: all 0.3s ease;
+    }
+
+    .status-dot.active {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success-glow);
+    }
+
+    .status-dot.simulating {
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.2); }
+    }
+
+    /* Main Workspace */
+    .workspace {
+      flex: 1;
+      position: relative;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #0b0f19;
+    }
+
+    /* Floating Overlay Card */
+    .control-card {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 480px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      z-index: 1000;
+      transition: all 0.3s ease;
+    }
+
+    .control-card.active-spoof {
+      border-color: var(--accent);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 24px var(--accent-glow);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+
+    .coordinate-display {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .place-name {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Button Styling */
+    .btn-action {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-spoof {
+      background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+    }
+
+    .btn-spoof:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.6);
+    }
+
+    .btn-stop {
+      background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
+    }
+
+    .btn-stop:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(239, 68, 68, 0.6);
+    }
+
+    .btn-action:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* Status Banner */
+    .status-banner {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      display: none;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .status-banner.success {
+      display: block;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+
+    .status-banner.error {
+      display: block;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Search Bar */
+    .search-box {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 1000;
+      width: 300px;
+    }
+
+    .search-input {
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 10px 16px;
+      color: #ffffff;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(12px);
+    }
+
+    .search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">iOS Location Control</div>
+        <div class="brand-subtitle">Apple Developer Simulation Bridge</div>
+      </div>
+    </div>
+
+    <div class="device-bar">
+      <div id="statusDot" class="status-dot"></div>
+      <span id="deviceLabel" style="font-weight: 600;">Scanning...</span>
+      <span style="color: var(--border-color);">|</span>
+      <span id="devModeLabel" style="color: var(--text-secondary);">DevMode: ?</span>
+      <span style="color: var(--border-color);">|</span>
+      <span id="backendStateLabel" style="color: var(--accent); font-weight: 600;">DISCONNECTED</span>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <div class="search-box">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search city, landmark..." />
+    </div>
+
+    <div id="map"></div>
+
+    <div id="controlCard" class="control-card">
+      <div class="card-header">
+        <span class="card-title">Target Location</span>
+        <span id="stateBadge" style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">READY</span>
+      </div>
+
+      <div id="coordDisplay" class="coordinate-display">Tap on map to select</div>
+      <div id="placeDisplay" class="place-name">Click or tap anywhere on Earth</div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 14px;">
+        <button id="btnSpoof" class="btn-action btn-spoof" disabled>
+          <span id="btnSpoofIcon">📍</span>
+          <span id="btnSpoofText">SPOOF</span>
+        </button>
+        <button id="btnStop" class="btn-action btn-stop" style="display: none;">
+          <span>⏹</span>
+          <span>STOP SPOOFING</span>
+        </button>
+      </div>
+
+      <div id="statusBanner" class="status-banner"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    let map;
+    let marker;
+    let selectedLat = null;
+    let selectedLon = null;
+    let activeSimLat = null;
+    let activeSimLon = null;
+    let isSimulating = false;
+    let userHasCustomSelection = false;
+
+    // Elements
+    const statusDot = document.getElementById('statusDot');
+    const deviceLabel = document.getElementById('deviceLabel');
+    const devModeLabel = document.getElementById('devModeLabel');
+    const backendStateLabel = document.getElementById('backendStateLabel');
+    const coordDisplay = document.getElementById('coordDisplay');
+    const placeDisplay = document.getElementById('placeDisplay');
+    const btnSpoof = document.getElementById('btnSpoof');
+    const btnSpoofText = document.getElementById('btnSpoofText');
+    const btnSpoofIcon = document.getElementById('btnSpoofIcon');
+    const btnStop = document.getElementById('btnStop');
+    const statusBanner = document.getElementById('statusBanner');
+    const controlCard = document.getElementById('controlCard');
+    const stateBadge = document.getElementById('stateBadge');
+    const searchInput = document.getElementById('searchInput');
+
+    // Initialize Map
+    function initMap() {
+      map = L.map('map', {
+        zoomControl: false,
+        attributionControl: false
+      }).setView([48.8584, 2.2945], 13); // Default: Eiffel Tower
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19
+      }).addTo(map);
+
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+      map.on('click', (e) => {
+        userHasCustomSelection = true;
+        selectLocation(e.latlng.lat, e.latlng.lng);
+      });
+    }
+
+    // Select Coordinate
+    function selectLocation(lat, lon, label = null) {
+      selectedLat = parseFloat(lat.toFixed(6));
+      selectedLon = parseFloat(lon.toFixed(6));
+
+      if (marker) {
+        marker.setLatLng([selectedLat, selectedLon]);
+      } else {
+        const pinIcon = L.divIcon({
+          className: 'custom-pin',
+          html: `<div style="background: #38bdf8; width: 18px; height: 18px; border-radius: 50%; border: 3px solid #ffffff; box-shadow: 0 0 16px rgba(56, 189, 248, 0.8);"></div>`,
+          iconSize: [18, 18],
+          iconAnchor: [9, 9]
+        });
+        marker = L.marker([selectedLat, selectedLon], { icon: pinIcon }).addTo(map);
+      }
+
+      coordDisplay.innerText = `${selectedLat.toFixed(4)}, ${selectedLon.toFixed(4)}`;
+      if (label) {
+        placeDisplay.innerText = label;
+      } else {
+        placeDisplay.innerText = "Selected Coordinate";
+        reverseGeocode(selectedLat, selectedLon);
+      }
+
+      updateButtonStates();
+    }
+
+    function updateButtonStates() {
+      if (isSimulating) {
+        btnStop.style.display = "flex";
+        btnStop.disabled = false;
+        
+        const isSame = (activeSimLat !== null && activeSimLon !== null &&
+                        Math.abs(selectedLat - activeSimLat) < 0.0001 &&
+                        Math.abs(selectedLon - activeSimLon) < 0.0001);
+        
+        if (isSame) {
+          btnSpoof.disabled = true;
+          btnSpoofText.innerText = "SIMULATING HERE";
+          btnSpoofIcon.innerText = "✓";
+        } else {
+          btnSpoof.disabled = false;
+          btnSpoofText.innerText = "UPDATE LOCATION";
+          btnSpoofIcon.innerText = "🚀";
+        }
+      } else {
+        btnStop.style.display = "none";
+        btnSpoof.disabled = (selectedLat === null);
+        btnSpoofText.innerText = "SPOOF";
+        btnSpoofIcon.innerText = "📍";
+      }
+    }
+
+    // Reverse Geocode
+    async function reverseGeocode(lat, lon) {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+        const data = await res.json();
+        if (data && data.display_name) {
+          placeDisplay.innerText = data.display_name.split(',').slice(0, 3).join(',');
+        }
+      } catch (err) {
+        // Silently keep coordinate
+      }
+    }
+
+    // Search
+    searchInput.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter' && searchInput.value.trim()) {
+        try {
+          const query = encodeURIComponent(searchInput.value.trim());
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`);
+          const data = await res.json();
+          if (data && data.length > 0) {
+            const first = data[0];
+            const lat = parseFloat(first.lat);
+            const lon = parseFloat(first.lon);
+            userHasCustomSelection = true;
+            map.flyTo([lat, lon], 14);
+            selectLocation(lat, lon, first.display_name);
+          }
+        } catch (err) {
+          console.error("Search error:", err);
+        }
+      }
+    });
+
+    // Fetch Status & Devices
+    async function pollStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+
+        // Update Device Bar
+        if (data.device) {
+          deviceLabel.innerText = `${data.device.name} (${data.device.ios_version})`;
+          devModeLabel.innerText = data.device.developer_mode ? "DevMode: ON" : "DevMode: OFF";
+          statusDot.className = "status-dot active";
+        } else if (data.capabilities && data.capabilities.device_connected) {
+          deviceLabel.innerText = data.capabilities.details || "iPhone Connected";
+          devModeLabel.innerText = data.capabilities.developer_mode_enabled ? "DevMode: ON" : "DevMode: OFF";
+          statusDot.className = "status-dot active";
+        } else {
+          deviceLabel.innerText = "No Device Connected";
+          devModeLabel.innerText = "DevMode: ?";
+          statusDot.className = "status-dot";
+        }
+
+        backendStateLabel.innerText = data.state;
+        stateBadge.innerText = data.state;
+
+        if (data.state === 'SIMULATING') {
+          isSimulating = true;
+          statusDot.className = "status-dot simulating";
+          controlCard.classList.add('active-spoof');
+
+          if (data.active_coordinate) {
+            activeSimLat = data.active_coordinate[0];
+            activeSimLon = data.active_coordinate[1];
+            if (!userHasCustomSelection) {
+              selectLocation(activeSimLat, activeSimLon);
+            }
+          }
+
+          statusBanner.className = "status-banner success";
+          statusBanner.innerText = `SPOOFING ACTIVE — System location is persistently locked.`;
+        } else {
+          isSimulating = false;
+          activeSimLat = null;
+          activeSimLon = null;
+          controlCard.classList.remove('active-spoof');
+          if (data.state !== 'ERROR') {
+            statusBanner.className = "status-banner";
+            statusBanner.style.display = "none";
+          }
+        }
+
+        updateButtonStates();
+
+        if (data.last_error && data.state === 'ERROR') {
+          statusBanner.className = "status-banner error";
+          statusBanner.innerText = `SPOOFING FAILED: ${data.last_error}`;
+        }
+      } catch (err) {
+        backendStateLabel.innerText = "DISCONNECTED";
+        statusDot.className = "status-dot";
+      }
+    }
+
+    // Spoof Handler
+    btnSpoof.addEventListener('click', async () => {
+      if (selectedLat === null || selectedLon === null) return;
+      btnSpoof.disabled = true;
+      btnSpoofText.innerText = "SPOOFING...";
+
+      try {
+        const res = await fetch('/api/spoof', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: selectedLat, lon: selectedLon })
+        });
+        const result = await res.json();
+
+        if (result.success) {
+          activeSimLat = selectedLat;
+          activeSimLon = selectedLon;
+          userHasCustomSelection = false;
+          statusBanner.className = "status-banner success";
+          statusBanner.innerText = `SPOOFING ACTIVE — ${result.message}`;
+          await pollStatus();
+        } else {
+          statusBanner.className = "status-banner error";
+          statusBanner.innerText = `SPOOFING FAILED: ${result.message}`;
+          btnSpoof.disabled = false;
+          btnSpoofText.innerText = isSimulating ? "UPDATE LOCATION" : "SPOOF";
+        }
+      } catch (err) {
+        statusBanner.className = "status-banner error";
+        statusBanner.innerText = `SPOOFING FAILED: Network error (${err.message})`;
+        btnSpoof.disabled = false;
+        btnSpoofText.innerText = isSimulating ? "UPDATE LOCATION" : "SPOOF";
+      }
+    });
+
+    // Stop Handler
+    btnStop.addEventListener('click', async () => {
+      btnStop.disabled = true;
+      btnStop.innerText = "STOPPING...";
+
+      try {
+        const res = await fetch('/api/clear', { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+          userHasCustomSelection = false;
+          statusBanner.className = "status-banner success";
+          statusBanner.innerText = "Simulation stopped. iPhone restored to genuine GPS.";
+          await pollStatus();
+        } else {
+          statusBanner.className = "status-banner error";
+          statusBanner.innerText = `STOP FAILED: ${result.message}`;
+          btnStop.disabled = false;
+          btnStop.innerText = "STOP SPOOFING";
+        }
+      } catch (err) {
+        statusBanner.className = "status-banner error";
+        statusBanner.innerText = `STOP FAILED: ${err.message}`;
+        btnStop.disabled = false;
+        btnStop.innerText = "STOP SPOOFING";
+      }
+    });
+
+    // Start App
+    window.addEventListener('DOMContentLoaded', () => {
+      initMap();
+      selectLocation(48.8584, 2.2945, "Eiffel Tower, Paris, France");
+      pollStatus();
+      setInterval(pollStatus, 3000);
+    });
+  </script>
+</body>
+</html>
+

@@ -51,26 +51,81 @@ class Doctor:
                 )
             )
 
-        # 2. Network / Port Availability
+        # 2. pymobiledevice3 Library Check
+        try:
+            import pymobiledevice3
+            items.append(
+                DiagnosticItem(
+                    name="Device Communication Stack",
+                    status="OK",
+                    detail=f"pymobiledevice3 installed at {pymobiledevice3.__file__}",
+                )
+            )
+        except ImportError:
+            items.append(
+                DiagnosticItem(
+                    name="Device Communication Stack",
+                    status="FAIL",
+                    detail="pymobiledevice3 is not installed",
+                    recommendation="Run 'pip install pymobiledevice3' to enable iOS hardware communication.",
+                )
+            )
+
+        # 3. usbmuxd (Port 27015) Connectivity Check
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1.0)
-            result = sock.connect_ex(("127.0.0.1", 8765))
+            sock.settimeout(0.5)
+            mux_res = sock.connect_ex(("127.0.0.1", 27015))
             sock.close()
-            if result == 0:
+            if mux_res == 0:
                 items.append(
                     DiagnosticItem(
-                        name="Bridge Port (8765)",
-                        status="INFO",
-                        detail="Port 8765 is actively listening (daemon running)",
+                        name="usbmuxd Daemon (Port 27015)",
+                        status="OK",
+                        detail="usbmuxd is actively listening for iOS USB devices",
                     )
                 )
             else:
                 items.append(
                     DiagnosticItem(
-                        name="Bridge Port (8765)",
+                        name="usbmuxd Daemon (Port 27015)",
+                        status="WARN",
+                        detail="usbmuxd is not listening on port 27015",
+                        recommendation=(
+                            "On Windows: Start 'Apple Mobile Device Service' via Services or launch iTunes. "
+                            "On macOS: native usbmuxd runs automatically."
+                        ),
+                    )
+                )
+        except Exception as e:
+            items.append(
+                DiagnosticItem(
+                    name="usbmuxd Check",
+                    status="WARN",
+                    detail=f"Error testing port 27015: {e}",
+                )
+            )
+
+        # 4. Web & Bridge Port (8765) Availability
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5)
+            result = sock.connect_ex(("127.0.0.1", 8765))
+            sock.close()
+            if result == 0:
+                items.append(
+                    DiagnosticItem(
+                        name="Companion Bridge Port (8765)",
+                        status="INFO",
+                        detail="Port 8765 is actively listening (server daemon running)",
+                    )
+                )
+            else:
+                items.append(
+                    DiagnosticItem(
+                        name="Companion Bridge Port (8765)",
                         status="OK",
-                        detail="Port 8765 is available for local companion server",
+                        detail="Port 8765 is available for local Map UI / API server",
                     )
                 )
         except Exception as e:
@@ -82,7 +137,7 @@ class Doctor:
                 )
             )
 
-        # 3. Xcode / simctl Tooling (if on macOS)
+        # 5. Apple Tooling / Platform Check
         if platform.system() == "Darwin":
             xcrun_path = shutil.which("xcrun")
             if xcrun_path:
@@ -105,21 +160,44 @@ class Doctor:
         else:
             items.append(
                 DiagnosticItem(
-                    name="Apple Tooling Boundary",
+                    name="Host Platform",
                     status="INFO",
-                    detail=f"Running on {platform.system()}; companion server & protocol bridge active. Native xcodebuild requires macOS.",
+                    detail=f"Host OS: {platform.system()}. Pure-Python userspace developer simulation enabled.",
                 )
             )
 
-        # 4. Developer Mode & Pairing capability
-        items.append(
-            DiagnosticItem(
-                name="Developer Mode Support",
-                status="OK",
-                detail="Developer Mode required on iOS 16+ targets for hardware debug override.",
-                recommendation="Enable under iOS Settings > Privacy & Security > Developer Mode.",
+        # 6. Physical Device Enumeration
+        try:
+            from ..backend.developer_service import DeveloperServiceBackend
+            backend = DeveloperServiceBackend()
+            devices = backend.list_devices_sync()
+
+            if devices:
+                dev_str = ", ".join(f"{d.name} ({d.udid[:8]}...)" for d in devices)
+                items.append(
+                    DiagnosticItem(
+                        name="Connected iOS Devices",
+                        status="OK",
+                        detail=f"{len(devices)} device(s) detected: {dev_str}",
+                    )
+                )
+            else:
+                items.append(
+                    DiagnosticItem(
+                        name="Connected iOS Devices",
+                        status="INFO",
+                        detail="No iOS device currently connected via USB or usbmuxd not running.",
+                        recommendation="Plug in iPhone 13 via USB and ensure screen is unlocked.",
+                    )
+                )
+        except Exception as e:
+            items.append(
+                DiagnosticItem(
+                    name="Device Check",
+                    status="WARN",
+                    detail=f"Device enumeration check failed: {e}",
+                )
             )
-        )
 
         return DiagnosticReport(
             platform=os_name,

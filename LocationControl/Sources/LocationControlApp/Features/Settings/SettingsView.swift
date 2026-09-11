@@ -11,7 +11,49 @@ public struct SettingsView: View {
     public var body: some View {
         NavigationStack {
             Form {
+                Section(header: Text("PC Companion Connection")) {
+                    Text("Connect to 'locationctl serve' on your PC over local Wi-Fi or USB.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Image(systemName: "desktopcomputer")
+                            .foregroundStyle(.blue)
+                        TextField("http://192.168.1.XX:8765", text: $appState.backendApiUrl)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+
+                    Button("Test Connection") {
+                        Task {
+                            await appState.checkBackendStatus()
+                        }
+                    }
+
+                    if appState.isBackendReachable {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Connected to PC Controller")
+                            Spacer()
+                            Text(appState.connectedDeviceName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text("Not connected. Run 'locationctl serve' on PC.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section(header: Text("Units & Speed")) {
+
                     Picker("Speed Unit", selection: $appState.simulationSettings.speedUnit) {
                         ForEach(SpeedUnit.allCases, id: \.self) { unit in
                             Text(unit.rawValue).tag(unit)

@@ -1,91 +1,81 @@
-"""WebSocket companion server for streaming simulation and receiving commands from iOS app or CLI."""
+"""Unified HTTP REST and WebSocket companion server for iOS Location Simulation."""
 
 import asyncio
 import json
 import logging
-from typing import Set, Optional
+import os
+from pathlib import Path
+from typing import Optional, Set
+
+from aiohttp import web
 import websockets
-from ..protocol.messages import ProtocolMessage, MessageType, HelloPayload, AckPayload, ErrorPayload
-from ..protocol.models import PROTOCOL_VERSION, SimulationTelemetry
 
-logger = logging.getLogger(__name__)
+from ..backend.base import SimulationBackend
+from ..backend.developer_service import DeveloperServiceBackend
+
+logger = logging.getLogger("locationctl.transport.server")
 
 
-class CompanionServer:
-    """Async WebSocket server synchronizing PC controller and iOS app."""
+def create_app(backend: Optional[SimulationBackend] = None) -> web.Application:
+    """Create the aiohttp web application serving UI and REST API."""
+    if backend is None:
+        backend = DeveloperServiceBackend()
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8765):
-        self.host = host
-        self.port = port
-        self.connected_clients: Set[websockets.WebSocketServerProtocol] = set()
-        self.server: Optional[websockets.WebSocketServer] = None
-        self._running = False
+    app = web.Application()
+    ui_dir = Path(__file__).parent.parent / "ui"
+    index_file = ui_dir / "index.html"
 
-    async def start(self):
-        self._running = True
-        self.server = await websockets.serve(self._handle_client, self.host, self.port)
-        logger.info(f"Companion Server listening on ws://{self.host}:{self.port}")
+    async def handle_index(request: web.Request) -> web.Response:
+        if index_file.exists():
+            return web.FileResponse(index_file)
+        return web.Response(text="LocationControl UI not found.", status=404)
 
-    async def stop(self):
-        self._running = False
-        if self.server:
-            self.server.close()
-            await self.server.wait_closed()
-        for client in list(self.connected_clients):
-            await client.close()
-        self.connected_clients.clear()
+    async def handle_get_status(request: web.Request) -> web.Response:
+        status = await backend.get_status()
+        return web.json_response(status.model_dump())
 
-    async def broadcast_telemetry(self, telemetry: SimulationTelemetry):
-        msg = ProtocolMessage(
-            protocol_version=PROTOCOL_VERSION,
-            type=MessageType.STATE,
-            payload=telemetry.model_dump(),
-        )
-        await self.broadcast_message(msg)
+    async def handle_get_devices(request: web.Request) -> web.Response:
+        devices = await backend.list_devices()
+        return web.json_response([d.model_dump() for d in devices])
 
-    async def broadcast_message(self, message: ProtocolMessage):
-        if not self.connected_clients:
-            return
-        payload_str = message.model_dump_json()
-        await asyncio.gather(
-            *[client.send(payload_str) for client in self.connected_clients],
-            return_exceptions=True,
-        )
-
-    async def _handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
-        self.connected_clients.add(websocket)
-        logger.info(f"Client connected: {websocket.remote_address}")
+    async def handle_post_spoof(request: web.Request) -> web.Response:
         try:
-            async for raw_msg in websocket:
-                try:
-                    data = json.loads(raw_msg)
-                    msg = ProtocolMessage(**data)
-                    await self._process_message(websocket, msg)
-                except Exception as e:
-                    err_msg = ProtocolMessage(
-                        protocol_version=PROTOCOL_VERSION,
-                        type=MessageType.ERROR,
-                        payload=ErrorPayload(code="BAD_REQUEST", message=str(e)).model_dump(),
-                    )
-                    await websocket.send(err_msg.model_dump_json())
-        except websockets.exceptions.ConnectionClosed:
-            pass
-        finally:
-            self.connected_clients.discard(websocket)
-            logger.info(f"Client disconnected: {websocket.remote_address}")
+            data = await request.json()
+            lat = float(data.get("lat"))
+            lon = float(data.get("lon"))
+        except Exception as e:
+            return web.json_response({"success": False, "message": f"Invalid coordinate payload: {e}"}, status=400)
 
-    async def _process_message(self, websocket: websockets.WebSocketServerProtocol, msg: ProtocolMessage):
-        if msg.type == MessageType.HELLO:
-            ack = ProtocolMessage(
-                protocol_version=PROTOCOL_VERSION,
-                type=MessageType.HELLO_ACK,
-                payload=AckPayload(reply_to_id=msg.id, status="OK", message="Handshake established").model_dump(),
-            )
-            await websocket.send(ack.model_dump_json())
-        elif msg.type == MessageType.HEARTBEAT:
-            ack = ProtocolMessage(
-                protocol_version=PROTOCOL_VERSION,
-                type=MessageType.ACK,
-                payload=AckPayload(reply_to_id=msg.id, status="OK").model_dump(),
-            )
-            await websocket.send(ack.model_dump_json())
+        result = await backend.set_location(latitude=lat, longitude=lon)
+        return web.json_response(result.model_dump())
+
+    async def handle_post_clear(request: web.Request) -> web.Response:
+        result = await backend.clear_location()
+        return web.json_response(result.model_dump())
+
+
+    async def on_cleanup(app_instance):
+        try:
+            await backend.clear_location()
+        except Exception:
+            pass
+
+    app.on_cleanup.append(on_cleanup)
+
+    # Routes
+    app.router.add_get("/", handle_index)
+    app.router.add_get("/api/status", handle_get_status)
+    app.router.add_get("/api/devices", handle_get_devices)
+    app.router.add_post("/api/spoof", handle_post_spoof)
+    app.router.add_post("/api/clear", handle_post_clear)
+
+    return app
+
+
+
+def run_server(host: str = "0.0.0.0", port: int = 8765, backend: Optional[SimulationBackend] = None):
+    """Run the web and REST server synchronously."""
+    print(f"\n[+] iOS Location Simulation Server running on http://localhost:{port}")
+    print(f"[+] If accessing from iPhone Safari on local Wi-Fi: http://<PC_LOCAL_IP>:{port}\n")
+    app = create_app(backend=backend)
+    web.run_app(app, host=host, port=port)

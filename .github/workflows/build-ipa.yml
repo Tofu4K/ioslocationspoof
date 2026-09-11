@@ -12,81 +12,134 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build iOS App Binary
+      - name: Select Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+          swift --version
+
+      - name: Compile iOS App Binary
         run: |
           cd LocationControl
           
-          # Get the official iOS SDK path
+          # Target real iPhone physical SDK
           IPHONEOS_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           echo "Targeting SDK: $IPHONEOS_SDK"
           
-          # Clean any previous artifacts
+          # Clean previous build artifacts
           rm -rf .build ../build
           
-          # Compile with swift build passing --sdk directly to SwiftPM
+          # Compile native arm64 release binary
           swift build -c release \
             --sdk "$IPHONEOS_SDK" \
-            --triple arm64-apple-ios17.0
+            --triple arm64-apple-ios17.0 \
+            -Xswiftc -target -Xswiftc arm64-apple-ios17.0
           
-          # Create IPA Payload structure
+          # Locate compiled executable
+          BINARY=$(find .build -type f -name "LocationControlApp" | head -n 1)
+          if [ -z "$BINARY" ]; then
+            echo "Error: LocationControlApp binary not found!"
+            find .build -type f
+            exit 1
+          fi
+          echo "Found compiled binary: $BINARY"
+          file "$BINARY"
+          
+          # Construct standard IPA Payload hierarchy
           mkdir -p ../build/Payload/LocationControl.app
           APP_DIR="../build/Payload/LocationControl.app"
           
-          # Copy compiled binary
-          BINARY=$(find .build/arm64-apple-ios17.0/release -type f -name "LocationControlApp" | head -n 1)
-          if [ -z "$BINARY" ]; then
-            BINARY=$(find .build -type f -name "LocationControlApp" | head -n 1)
-          fi
-          echo "Found binary at: $BINARY"
           cp "$BINARY" "$APP_DIR/LocationControl"
           chmod +x "$APP_DIR/LocationControl"
           
-          # Generate standard Info.plist
+          # Copy App Icon assets if present
+          if [ -d "Resources" ]; then
+            echo "Copying icon assets..."
+            cp -r Resources/* "$APP_DIR/" 2>/dev/null || true
+          fi
+          
+          # Write production Info.plist
           cat << 'EOF' > "$APP_DIR/Info.plist"
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>LocationControl</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.locationcontrol.suite</string>
-              <key>CFBundleName</key>
-              <string>LocationControl</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0.0</string>
-              <key>CFBundleVersion</key>
-              <string>1.0.0</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>MinimumOSVersion</key>
-              <string>17.0</string>
-              <key>NSLocationWhenInUseUsageDescription</key>
-              <string>LocationControl requires location permissions to display and simulate driving routes.</string>
-              <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-              <string>LocationControl simulates virtual routes in background sessions.</string>
-              <key>UIRequiredDeviceCapabilities</key>
-              <array>
-                  <string>arm64</string>
-              </array>
-              <key>UISupportedInterfaceOrientations</key>
-              <array>
-                  <string>UIInterfaceOrientationPortrait</string>
-              </array>
-          </dict>
-          </plist>
-          EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>LocationControl</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.locationcontrol.suite</string>
+    <key>CFBundleName</key>
+    <string>LocationControl</string>
+    <key>CFBundleDisplayName</key>
+    <string>LocationControl</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>MinimumOSVersion</key>
+    <string>17.0</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>LocationControl communicates with the PC companion server over your local network.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>LocationControl requires location permissions to display and simulate coordinates.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>LocationControl requires location permissions for background coordinate synchronization.</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>CFBundleIcons</key>
+    <dict>
+        <key>CFBundlePrimaryIcon</key>
+        <dict>
+            <key>CFBundleIconFiles</key>
+            <array>
+                <string>AppIcon60x60</string>
+                <string>AppIcon180</string>
+            </array>
+        </dict>
+    </dict>
+</dict>
+</plist>
+EOF
+          
+          # Ad-hoc code signing for iOS bundle integrity
+          echo "Signing bundle with ad-hoc signature..."
+          codesign --force --deep --sign - "$APP_DIR"
+          codesign --verify --verbose "$APP_DIR"
 
       - name: Package into IPA
         run: |
           cd build
-          zip -r LocationControl.ipa Payload/
+          zip -r9 LocationControl.ipa Payload/
+          echo "IPA Size: $(du -sh LocationControl.ipa)"
+          shasum -a 256 LocationControl.ipa > LocationControl.ipa.sha256
+          cat LocationControl.ipa.sha256
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LocationControl-IPA
-          path: build/LocationControl.ipa
-          retention-days: 14
+          path: |
+            build/LocationControl.ipa
+            build/LocationControl.ipa.sha256
+          retention-days: 30

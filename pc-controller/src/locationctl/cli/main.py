@@ -1,10 +1,16 @@
 """CLI interface for locationctl using Click and Rich."""
 
+import warnings
+warnings.filterwarnings("ignore", message=".*doesn't match a supported version!.*")
+warnings.filterwarnings("ignore", category=UserWarning)
+
+import sys
 import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 import json
+
 
 from ..diagnostics.doctor import Doctor
 from ..config.manager import ConfigManager
@@ -12,9 +18,12 @@ from ..protocol.models import Coordinate, SimulationSettings
 from ..routes.processor import RouteProcessor
 from ..simulation.engine import SimulationEngine
 from ..routes.gpx import GPXService
+from ..backend.developer_service import DeveloperServiceBackend
+from ..backend.state import BackendState
 
 console = Console()
 config_mgr = ConfigManager()
+backend = DeveloperServiceBackend()
 
 
 @click.group(help="iOS Location Simulation & Testing Suite — PC Companion CLI")
@@ -22,10 +31,14 @@ def cli():
     pass
 
 
+# Export app alias for console_scripts entrypoint
+app = cli
+
+
 @cli.command("doctor")
 @click.option("--json", "json_output", is_flag=True, help="Output results in JSON format")
 def cmd_doctor(json_output: bool):
-    """Run environment and tooling diagnostic checks."""
+    """Run environment, usbmuxd, and hardware diagnostic checks."""
     report = Doctor.run_checks()
     if json_output:
         console.print_json(data=report.model_dump())
@@ -39,7 +52,7 @@ def cmd_doctor(json_output: bool):
     )
 
     table = Table(title="Diagnostic Checks", show_header=True, header_style="bold magenta")
-    table.add_column("Component", style="dim", width=25)
+    table.add_column("Component", style="dim", width=28)
     table.add_column("Status", width=10)
     table.add_column("Details")
 
@@ -58,24 +71,46 @@ def cmd_doctor(json_output: bool):
 @cli.command("devices")
 @click.option("--json", "json_output", is_flag=True, help="Output devices in JSON format")
 def cmd_devices(json_output: bool):
-    """List connected and discovered iOS test devices."""
-    devices = [
-        {"id": "sim-local", "name": "iOS Simulator (Local)", "platform": "iOS 18.0", "status": "AVAILABLE", "type": "Simulator"},
-        {"id": "net-bridge", "name": "iOS Companion Bridge", "platform": "Local Network (ws://)", "status": "LISTENING", "type": "Network"},
-    ]
+    """List connected and discovered physical iOS devices."""
+    dev_objects = backend.list_devices_sync()
+    devices = [d.model_dump() for d in dev_objects]
+
     if json_output:
         console.print_json(data=devices)
         return
 
-    table = Table(title="Discovered Devices & Endpoints", show_header=True)
-    table.add_column("Identifier", style="cyan")
-    table.add_column("Name")
-    table.add_column("Type")
-    table.add_column("Platform")
-    table.add_column("Status", style="green")
+    if not devices:
+        console.print(
+            Panel(
+                "[bold yellow]No Connected iOS Devices Detected[/bold yellow]\n\n"
+                "1. Connect your iPhone 13 via a USB data cable.\n"
+                "2. Unlock the device screen.\n"
+                "3. Ensure 'Apple Mobile Device Service' is running (or launch iTunes on Windows).\n"
+                "4. Ensure Developer Mode is enabled under Settings > Privacy & Security > Developer Mode.",
+                title="Device Discovery",
+            )
+        )
+        return
+
+    table = Table(title="Connected Physical iOS Devices", show_header=True)
+    table.add_column("UDID", style="cyan", width=25)
+    table.add_column("Device Name")
+    table.add_column("Model")
+    table.add_column("iOS Version")
+    table.add_column("Paired", width=10)
+    table.add_column("Developer Mode", width=16)
 
     for d in devices:
-        table.add_row(d["id"], d["name"], d["type"], d["platform"], d["status"])
+        paired_str = "[green]YES[/green]" if d["is_paired"] else "[red]NO[/red]"
+        devmode_str = "[green]ENABLED[/green]" if d["developer_mode"] else "[yellow]UNKNOWN[/yellow]"
+        table.add_row(
+            d["udid"][:20] + "...",
+            d["name"],
+            d["product_type"],
+            d["ios_version"],
+            paired_str,
+            devmode_str,
+        )
 
     console.print(table)
 
@@ -83,126 +118,117 @@ def cmd_devices(json_output: bool):
 @cli.command("capabilities")
 @click.option("--json", "json_output", is_flag=True, help="Output capabilities in JSON")
 def cmd_capabilities(json_output: bool):
-    """Display runtime capability matrix."""
-    caps = {
-        "MapKit Road Routing": True,
-        "Kinematic Movement Engine": True,
-        "Speed Profiling & Acceleration": True,
-        "Simulated Stops & Heuristics": True,
-        "GPX Import / Export": True,
-        "iOS Simulator Location Injection": True,
-        "RemoteXPC Developer Tunnel (iOS 17+)": True,
-        "System-Wide Public In-App Spoof": False,
-    }
+    """Display runtime capability and hardware readiness matrix."""
+    caps = backend.get_capabilities_sync()
     if json_output:
-        console.print_json(data=caps)
+        console.print_json(data=caps.model_dump())
         return
 
-    table = Table(title="Simulation Capability Matrix", show_header=True)
+    table = Table(title="Hardware & Simulation Capability Matrix", show_header=True)
     table.add_column("Capability", style="bold")
-    table.add_column("Supported", width=12)
+    table.add_column("Status", width=18)
 
-    for cap, supported in caps.items():
-        status = "[bold green]YES[/bold green]" if supported else "[dim red]NO (Sandbox Bound)[/dim red]"
-        table.add_row(cap, status)
+    table.add_row("Device Connected", "[green]YES[/green]" if caps.device_connected else "[dim red]NO[/dim red]")
+    table.add_row("Device Paired (Trust)", "[green]YES[/green]" if caps.device_paired else "[dim red]NO[/dim red]")
+    table.add_row("Developer Mode", "[green]ENABLED[/green]" if caps.developer_mode_enabled else "[yellow]UNVERIFIED[/yellow]")
+    table.add_row("Developer Service Backend", "[green]AVAILABLE[/green]" if caps.simulation_backend_available else "[dim red]UNAVAILABLE[/dim red]")
+    table.add_row("com.apple.dt.simulatelocation", "[green]READY[/green]" if caps.developer_service_available else "[dim red]NOT READY[/dim red]")
 
     console.print(table)
+    if caps.details:
+        console.print(f"[dim]Details: {caps.details}[/dim]\n")
 
 
-@cli.command("set-position")
-@click.argument("lat", type=float)
-@click.argument("lon", type=float)
-@click.option("--altitude", default=0.0, type=float, help="Altitude in meters")
-@click.option("--json", "json_output", is_flag=True, help="JSON output")
-def cmd_set_position(lat: float, lon: float, altitude: float, json_output: bool):
-    """Set a static virtual coordinate."""
-    coord = Coordinate(latitude=lat, longitude=lon, altitude=altitude)
-    if json_output:
-        console.print_json(data={"status": "OK", "coordinate": coord.model_dump()})
-        return
+@cli.command("spoof")
+@click.option("--lat", required=True, type=float, help="Latitude (-90.0 to 90.0)")
+@click.option("--lon", required=True, type=float, help="Longitude (-180.0 to 180.0)")
+@click.option("--udid", default=None, type=str, help="Target device UDID")
+def cmd_spoof(lat: float, lon: float, udid: str):
+    """Simulate a fixed coordinate on the connected iPhone 13."""
+    console.print(f"[dim]Initiating location simulation to ({lat:.4f}, {lon:.4f})...[/dim]")
+    res = backend.set_location_sync(lat, lon)
+    if res.success:
+        console.print(
+            Panel(
+                f"[bold green]SPOOFING ACTIVE[/bold green]\n\n"
+                f"Latitude: {lat:.6f}\n"
+                f"Longitude: {lon:.6f}\n"
+                f"Status: {res.message}\n\n"
+                f"[bold yellow]Location simulation is active and locked on iPhone.[/bold yellow]\n"
+                f"Press [bold cyan]Enter[/bold cyan] or [bold cyan]Ctrl+C[/bold cyan] to stop simulation and restore genuine GPS.",
+                border_style="green",
+            )
+        )
+        try:
+            input()
+        except (KeyboardInterrupt, EOFError):
+            pass
+        finally:
+            console.print("\n[dim]Stopping location simulation...[/dim]")
+            clear_res = backend.clear_location_sync()
+            if clear_res.success:
+                console.print("[bold green]Device successfully restored to genuine GPS.[/bold green]\n")
+            else:
+                console.print(f"[yellow]Simulation stopped: {clear_res.message}[/yellow]\n")
+    else:
+        console.print(
+            Panel(
+                f"[bold red]SPOOFING FAILED[/bold red]\n\n"
+                f"Reason: {res.message}\n"
+                f"Error Code: {res.error}",
+                border_style="red",
+            )
+        )
 
+
+
+@cli.command("clear")
+def cmd_clear():
+    """Stop location simulation and restore device to natural GPS."""
+    console.print("[dim]Stopping location simulation...[/dim]")
+    res = backend.clear_location_sync()
+    if res.success:
+        console.print(
+            Panel(
+                "[bold green]SIMULATION STOPPED[/bold green]\n\n"
+                "Device locationd has restored natural GNSS hardware updates.",
+                border_style="green",
+            )
+        )
+    else:
+        console.print(
+            Panel(
+                f"[bold red]FAILED TO CLEAR SIMULATION[/bold red]\n\n{res.message}",
+                border_style="red",
+            )
+        )
+
+
+@cli.command("status")
+def cmd_status():
+    """Query current backend simulation state and active coordinates."""
+    status = backend.get_status_sync()
     console.print(
         Panel(
-            f"[bold green]Virtual Coordinate Applied[/bold green]\n"
-            f"Latitude: {coord.latitude:.6f}\n"
-            f"Longitude: {coord.longitude:.6f}\n"
-            f"Altitude: {coord.altitude:.1f} m"
+            f"[bold cyan]SIMULATION STATUS[/bold cyan]\n\n"
+            f"State: [bold]{status.state.value}[/bold]\n"
+            f"Active Coordinate: {status.active_coordinate or 'None'}\n"
+            f"Device: {status.device.name if status.device else 'None'}\n"
+            f"Last Error: {status.last_error or 'None'}",
+            border_style="cyan",
         )
     )
 
 
-@cli.command("simulate")
-@click.option("--start-lat", default=52.2297, type=float, help="Start latitude")
-@click.option("--start-lon", default=21.0122, type=float, help="Start longitude")
-@click.option("--dest-lat", default=52.2350, type=float, help="Destination latitude")
-@click.option("--dest-lon", default=21.0250, type=float, help="Destination longitude")
-@click.option("--speed", default=50.0, type=float, help="Speed in km/h")
-@click.option("--ticks", default=5, type=int, help="Number of simulated ticks")
-def cmd_simulate(start_lat: float, start_lon: float, dest_lat: float, dest_lon: float, speed: float, ticks: int):
-    """Run a test kinematic simulation session."""
-    c1 = Coordinate(latitude=start_lat, longitude=start_lon)
-    c2 = Coordinate(latitude=dest_lat, longitude=dest_lon)
-    settings = SimulationSettings(target_speed_kmh=speed, deterministic_mode=True)
-    route = RouteProcessor.process_coordinates([c1, c2], name="CLI Test Route", settings=settings)
 
-    engine = SimulationEngine(route, settings)
-    engine.start()
-
-    console.print(f"[bold green]Starting simulation on route:[/bold green] {route.name} ({route.total_distance_meters:.1f} m)")
-
-    for i in range(ticks):
-        telem = engine.tick()
-        console.print(
-            f"Tick #{i+1}: Lat={telem.current_coordinate.latitude:.5f}, Lon={telem.current_coordinate.longitude:.5f}, "
-            f"Speed={telem.current_speed_kmh:.1f} km/h, Dist={telem.distance_travelled_meters:.1f}m / {route.total_distance_meters:.1f}m ({telem.progress_percentage:.1f}%)"
-        )
-
-
-@cli.group("config")
-def config_group():
-    """Manage locationctl configuration."""
-    pass
-
-
-@config_group.command("show")
-def cmd_config_show():
-    """Display current configuration."""
-    console.print_json(data=config_mgr.config.model_dump())
-
-
-@config_group.command("get")
-@click.argument("key")
-def cmd_config_get(key: str):
-    """Get a specific configuration value."""
-    val = config_mgr.get(key)
-    if val is not None:
-        console.print(f"{key} = {val}")
-    else:
-        console.print(f"[red]Key '{key}' not found.[/red]")
-
-
-@config_group.command("set")
-@click.argument("key")
-@click.argument("value")
-def cmd_config_set(key: str, value: str):
-    """Set a configuration parameter."""
-    try:
-        config_mgr.set(key, value)
-        console.print(f"[green]Updated {key} to {value}[/green]")
-    except Exception as e:
-        console.print(f"[red]Error updating setting: {e}[/red]")
-
-
-@config_group.command("reset")
-def cmd_config_reset():
-    """Reset configuration to defaults."""
-    config_mgr.reset()
-    console.print("[green]Configuration reset to factory defaults.[/green]")
-
-
-def main():
-    cli()
+@cli.command("serve")
+@click.option("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
+@click.option("--port", default=8765, help="Port (default: 8765)")
+def cmd_serve(host: str, port: int):
+    """Start the interactive World Map UI and companion REST/WebSocket server."""
+    from ..transport.server import run_server
+    run_server(host=host, port=port, backend=backend)
 
 
 if __name__ == "__main__":
-    main()
+    cli()

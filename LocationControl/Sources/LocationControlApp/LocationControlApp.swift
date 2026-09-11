@@ -16,6 +16,13 @@ public struct LocationControlApp: App {
                     }
                     .tag(AppState.NavigationTab.map)
 
+                WebControllerView(appState: appState)
+                    .tabItem {
+                        Label(AppState.NavigationTab.web.rawValue, systemImage: AppState.NavigationTab.web.icon)
+                    }
+                    .tag(AppState.NavigationTab.web)
+
+
                 RoutePlannerView(appState: appState)
                     .tabItem {
                         Label(AppState.NavigationTab.planner.rawValue, systemImage: AppState.NavigationTab.planner.icon)

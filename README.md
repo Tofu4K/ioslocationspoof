@@ -1,110 +1,92 @@
-# LocationControl: iOS Location Simulation & Testing Suite
+# Real iOS Location Spoofing Suite
 
-A production-quality developer testing and road-following location simulation suite for iOS and desktop (`locationctl`).
+A production-grade developer location-simulation system for physical iPhones (iPhone 13, iOS 16.x – 26.x).
+
+Allows a user to select any point on Earth on an interactive world map, press **`[SPOOF]`**, and have the physical iPhone override its system GNSS location via Apple's developer simulation service (`com.apple.dt.simulatelocation` / DVT RemoteXPC).
 
 ---
 
-## System Overview
-
-LocationControl consists of:
-1. **iOS Application (`LocationControl`)**: Native Swift/SwiftUI app featuring MapKit road-following routing, kinematic driving engine, realistic acceleration curves, simulated stops, live timeline seeking, and GPX export for Xcode schemes.
-2. **PC Controller (`pc-controller` / `locationctl`)**: Python 3.12+ CLI and bridge daemon with rich diagnostics (`doctor`), route runner, and shared WebSocket/TCP protocol.
-3. **Research & Feasibility Documentation (`research/`)**: Thorough analysis of Core Location sandboxing, Developer Mode, RemoteXPC RSD tunnels, Personal Team provisioning, and application compatibility.
+## The Core Workflow
 
 ```text
-                     ┌────────────────────────┐
-                     │   iOS App (SwiftUI)    │
-                     │ Map / Routes / UI      │
-                     └──────────┬─────────────┘
-                                │
-                         Simulation Protocol
-                         (WebSocket / TCP)
-                                │
-                                ▼
-                     ┌────────────────────────┐
-                     │  PC Controller CLI     │
-                     │  (locationctl)         │
-                     └──────────┬─────────────┘
-                                │
-                     Apple Developer Tooling
-                     (xcrun simctl / RemoteXPC)
-                                │
-                                ▼
-                     ┌────────────────────────┐
-                     │  iOS Test Environment  │
-                     └────────────────────────┘
+OPEN APP
+   ↓
+WORLD MAP
+   ↓
+CLICK / TAP LOCATION (Pin appears with Lat/Lon)
+   ↓
+PRESS [SPOOF]
+   ↓
+REAL DEVELOPER LOCATION SIMULATION ACTIVATED
+   ↓
+IPHONE SYSTEM LOCATION SERVICES USE SELECTED COORDINATE
+   ↓
+OTHER APPS (Apple Maps, Google Maps, Snapchat, etc.) OBSERVE SIMULATED LOCATION
 ```
 
 ---
 
-## Project Structure
+## Quickstart
 
-```text
-├── TECHNICAL_FEASIBILITY.md             # Platform capability & security analysis
-├── README.md                            # Suite documentation & quickstart
-├── research/                            # Primary research documents
-│   ├── ios-location.md
-│   ├── xcode-location-testing.md
-│   ├── signing.md
-│   ├── mapkit-routing.md
-│   └── compatibility.md
-├── LocationControl/                     # Native iOS Application (Swift/SwiftUI)
-│   ├── Package.swift
-│   ├── Sources/
-│   │   ├── LocationControlApp.swift
-│   │   ├── App/
-│   │   ├── Core/
-│   │   ├── Features/
-│   │   └── UI/
-│   └── Tests/
-└── pc-controller/                       # PC Companion Controller (Python 3.12+)
-    ├── pyproject.toml
-    ├── src/locationctl/
-    └── tests/
+### 1. Prerequisites (Physical iPhone 13)
+1. Enable **Developer Mode**: `Settings > Privacy & Security > Developer Mode > ON` (device reboots).
+2. Connect iPhone to PC via Lightning USB cable, unlock screen, and tap **Trust**.
+3. On Windows: Ensure **Apple Mobile Device Service** is running (or launch iTunes once).
+
+### 2. Verify Hardware Discovery
+```powershell
+locationctl doctor
+locationctl devices
+```
+
+### 3. Launch Interactive World Map UI
+```powershell
+locationctl serve
+```
+Open **`http://localhost:8765`** in your browser (or from iPhone Safari on your local Wi-Fi).
+1. Click anywhere on the map to place a pin.
+2. Click **`[SPOOF]`**.
+3. System confirms **`SPOOFING ACTIVE`**.
+4. Open Apple Maps, Google Maps, or Snapchat on the iPhone to observe the location.
+5. Click **`[STOP SPOOFING]`** to restore natural GPS.
+
+---
+
+## CLI Direct Controls
+
+You can also control device simulation directly from the command line:
+
+```powershell
+# Spoof Eiffel Tower, Paris
+locationctl spoof --lat 48.8584 --lon 2.2945
+
+# Check current simulation state
+locationctl status
+
+# Stop simulation and restore natural GPS
+locationctl clear
 ```
 
 ---
 
-## Quickstart: PC Controller (`locationctl`)
+## Documentation
 
-### 1. Environment Doctor & Diagnostics
-```bash
-# Run doctor check
-$env:PYTHONPATH="pc-controller/src"
-python -m locationctl.cli.main doctor
-```
-
-### 2. View Supported Simulation Capabilities
-```bash
-python -m locationctl.cli.main capabilities
-```
-
-### 3. Run a Kinematic Route Simulation
-```bash
-python -m locationctl.cli.main simulate --start-lat 52.2297 --start-lon 21.0122 --dest-lat 52.2350 --dest-lon 21.0250 --speed 60 --ticks 10
-```
-
-### 4. Running Unit Tests
-```bash
-$env:PYTHONPATH="pc-controller/src"
-python -m pytest pc-controller/tests
-```
+Detailed technical architecture and operational guides:
+- [RESEARCH.md](file:///c:/Users/Creep/Downloads/mc/docs/RESEARCH.md): Exhaustive research on `locationd`, CoreDevice, RemoteXPC, Developer Mode, and platform reality.
+- [ARCHITECTURE.md](file:///c:/Users/Creep/Downloads/mc/docs/ARCHITECTURE.md): System design, boundaries, and finite state machine.
+- [DEVICE_SETUP.md](file:///c:/Users/Creep/Downloads/mc/docs/DEVICE_SETUP.md): Step-by-step iPhone 13 Developer Mode & pairing guide.
+- [WINDOWS_SETUP.md](file:///c:/Users/Creep/Downloads/mc/docs/WINDOWS_SETUP.md): Windows host drivers and configuration.
+- [MACOS_VM_SETUP.md](file:///c:/Users/Creep/Downloads/mc/docs/MACOS_VM_SETUP.md): Zero-compromise macOS VM setup with USB passthrough.
+- [LOCATION_SIMULATION.md](file:///c:/Users/Creep/Downloads/mc/docs/LOCATION_SIMULATION.md): Protocol details and coordinate packet structures.
+- [TESTING.md](file:///c:/Users/Creep/Downloads/mc/docs/TESTING.md): Automated unit tests and physical device acceptance tests.
+- [COMPATIBILITY.md](file:///c:/Users/Creep/Downloads/mc/docs/COMPATIBILITY.md): System-wide application compatibility matrix.
+- [TROUBLESHOOTING.md](file:///c:/Users/Creep/Downloads/mc/docs/TROUBLESHOOTING.md): Error diagnosis and resolutions.
 
 ---
 
-## iOS Application Build & Testing Workflow
-
-1. Open `LocationControl` in **Xcode 15 or 16** on macOS Sonoma / Sequoia.
-2. Select target: **iOS Simulator** or **Physical iPhone (iOS 16+ with Developer Mode enabled)**.
-3. Configure Signing with your **Personal Team** or **Developer Team**.
-4. Build and Run (`Cmd + R`).
-5. Design a route in **Planner**, tap **Calculate Road Route**, and tap **Start Driving** on the interactive map.
-6. To replay the route across external apps in the simulator or tethered device, tap **Saved & Export > Copy Active Route GPX** and paste into an Xcode scheme or use `xcrun simctl location`.
-
----
-
-## Security & Architectural Guarantees
-
-* **Zero Private Daemon Injections:** Complies strictly with Apple Platform guidelines.
-* **Honest Capability Reporting:** `CapabilityRegistry` explicitly communicates when developer tethering is required versus in-app replay.
-* **Local-First & Private:** No telemetry or geographic coordinates are uploaded to external analytics servers.
+## Running Automated Tests
+```powershell
+cd pc-controller
+pytest -v
+```
+All 16 unit tests cover coordinate boundary validation, state transitions, hardware models, and server REST routes.
